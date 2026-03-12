@@ -15,7 +15,7 @@ export default function Footer() {
       </Pressable>
 
       <Pressable
-        onPress={() => router.replace("/myPage")}
+        onPress={() => router.replace("/postScreen")}
         className="flex-1 items-center justify-center"
       >
         <Text className="text-black text-sm">

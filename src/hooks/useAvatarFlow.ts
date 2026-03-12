@@ -1,118 +1,71 @@
-import { useEffect, useMemo, useState } from "react";
-import * as ImagePicker from "expo-image-picker";
+import { useState } from "react";
 import { Alert } from "react-native";
 import { supabase } from "@/src/lib/supabase";
-
-async function uriToBlob(uri: string): Promise<Blob> {
-  const res = await fetch(uri);
-  if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
-  return await res.blob();
-}
+import { useSimpleImageUpload } from "./useImageUpload";
+import { useAccount } from "@/src/providers/AccountProvider";
 
 export function useAvatarFlow() {
-  const [account, setAccount] = useState<any | null>(null);
-  const [localUri, setLocalUri] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { loading, selectAndUploadImage } = useSimpleImageUpload("avatars");
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const { patch } = useAccount();
 
-  // 🔹 初期アバター取得
-  useEffect(() => {
-    const load = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) return;
-
-      const { data } = await supabase
-        .from("accounts")
-        .select("avatar_url")
-        .eq("id", user.id)
-        .single();
-
-      if (data) setAccount(data);
-    };
-
-    load();
-  }, []);
-
-  // 🔹 選択→アップ→DB更新まで全部
   const selectAndUploadAvatar = async () => {
-    setLoading(true);
-    try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert("エラー", "権限が必要");
-        return;
-      }
-
-      const picked = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 0.8,
-      });
-
-      if (picked.canceled) return;
-
-      const uri = picked.assets[0].uri;
-      setLocalUri(uri);
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        Alert.alert("エラー", "未ログイン");
-        return;
-      }
-
-      const blob = await uriToBlob(uri);
-      const bucket = "avatars";
-      const path = `${user.id}/avatar`;
-
-      const { error: upErr } =
-        await supabase.storage.from(bucket).upload(path, blob, {
-          upsert: true,
-        });
-
-      if (upErr) {
-        Alert.alert("アップロード失敗", upErr.message);
-        return;
-      }
-
-      const { data } =
-        supabase.storage.from(bucket).getPublicUrl(path);
-
-      const avatarUrl = data.publicUrl;
-
-      const { error: dbErr } = await supabase
-        .from("accounts")
-        .update({ avatar_url: avatarUrl })
-        .eq("id", user.id);
-
-      if (dbErr) {
-        Alert.alert("更新失敗", dbErr.message);
-        return;
-      }
-
-      setAccount({ avatar_url: avatarUrl });
-
-      Alert.alert("成功", "アバター更新した");
-    } catch (e: any) {
-      Alert.alert("エラー", e?.message ?? "failed");
-    } finally {
-      setLoading(false);
+    // 1) user
+    const { data: { user }, error: uErr } = await supabase.auth.getUser();
+    if (uErr || !user) {
+      Alert.alert("未ログイン", "ログインしてください");
+      return;
     }
+
+    // 2) 旧avatar_url取得（あれば削除）
+    const { data: acc, error: aErr } = await supabase
+      .from("accounts")
+      .select("avatar_url")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (aErr) {
+      Alert.alert("失敗", aErr.message);
+      return;
+    }
+
+    const oldUrl = acc?.avatar_url ?? null;
+
+    // 3) 新しい画像をアップロード（毎回新しいpath=URLになる）
+    const r = await selectAndUploadImage();
+    if (!r.ok) {
+      Alert.alert("中断", r.message);
+      return;
+    }
+
+    // 4) DB更新（avatar_urlだけ）
+    const { error: dbErr } = await supabase
+      .from("accounts")
+      .update({ avatar_url: r.url })
+      .eq("id", user.id);
+
+    if (dbErr) {
+      Alert.alert("更新失敗", dbErr.message);
+      return;
+    }
+
+    // 5) 旧ファイル削除（失敗しても新しいのは残す）
+    if (oldUrl) {
+      const oldPath = oldUrl.split("/avatars/")[1]; // userId/xxxx.ext
+      if (oldPath) {
+        const { error: delErr } = await supabase.storage
+          .from("avatars")
+          .remove([oldPath]);
+
+        if (delErr) console.warn("avatar delete failed:", delErr.message);
+      }
+    }
+
+    // 6) 即時反映
+    setAvatarUri(r.url);
+    Alert.alert("成功", "アバター更新した");
+    patch({ avatar_url: r.url});
   };
 
-  // 🔹 表示用URI（即時反映）
-  const avatarUri = useMemo(
-    () => localUri ?? account?.avatar_url ?? null,
-    [localUri, account]
-  );
-
-  return {
-    loading,
-    avatarUri,
-    selectAndUploadAvatar,
-  };
+  return { loading, avatarUri, selectAndUploadAvatar };
 }

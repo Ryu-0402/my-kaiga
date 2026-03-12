@@ -1,26 +1,47 @@
 import { useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "@/src/lib/supabase";
-import { Alert } from "react-native";
+import * as FileSystem from "expo-file-system/legacy";
 
-async function uriToBlob(uri: string): Promise<Blob> {
-  const res = await fetch(uri);
-  if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
-  return await res.blob();
+
+async function uriToUint8Array(uri: string) {
+  const b64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: "base64",
+  });
+
+  const binary = globalThis.atob(b64);
+
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return bytes;
 }
 
-export function useSimpleImageUpload(bucket: string) {
+type UploadResult =
+  | { ok: true; url: string; path: string; uri: string; contentType: string }
+  | { ok: false; message: string };
+
+function guessExt(contentType: string) {
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  if (contentType === "image/jpeg") return "jpg";
+  return "bin";
+}
+
+export function useSimpleImageUpload(
+  bucket: string,
+  options?: { upsert?: boolean }
+) {
   const [loading, setLoading] = useState(false);
 
-  // 👇 名前を明確に
-  const selectAndUploadImage = async () => {
+  const selectAndUploadImage = async (): Promise<UploadResult> => {
     setLoading(true);
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert("エラー", "権限が必要");
-        return;
-      }
+      if (!perm.granted) return { ok: false, message: "権限が必要" };
 
       const picked = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -28,39 +49,41 @@ export function useSimpleImageUpload(bucket: string) {
         quality: 0.8,
       });
 
-      if (picked.canceled) return;
+      if (picked.canceled) return { ok: false, message: "キャンセル" };
 
-      const uri = picked.assets[0].uri;
+      const asset = picked.assets[0];
+      const uri = asset.uri;
 
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser();
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) return { ok: false, message: "未ログイン" };
 
-      if (error || !user) {
-        Alert.alert("エラー", "未ログイン");
-        return;
+      const bytes = await uriToUint8Array(uri);
+
+      if (bytes.byteLength === 0) {
+        return { ok: false, message: "画像データが0バイトです" };
       }
 
-      const blob = await uriToBlob(uri);
-      const path = `${user.id}/${Date.now()}`;
+      const contentType = asset.mimeType ?? "application/octet-stream";
+      const ext = guessExt(contentType);
 
-      const { error: uploadError } =
-        await supabase.storage.from(bucket).upload(path, blob);
+      const path =
+        options?.upsert
+          ? `${user.id}/avatar`
+          : `${user.id}/${Date.now()}.${ext}`;
 
-      if (uploadError) {
-        Alert.alert("アップロード失敗", uploadError.message);
-        return;
-      }
+      const { error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(path, bytes, {
+          contentType,
+          upsert: options?.upsert ?? false,
+        });
 
-      const { data } =
-        supabase.storage.from(bucket).getPublicUrl(path);
+      if (uploadError) return { ok: false, message: uploadError.message };
 
-      Alert.alert("成功", "アップロード完了");
-      console.log("URL:", data.publicUrl);
-
+      const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+      return { ok: true, url: data.publicUrl, path, uri, contentType };
     } catch (e: any) {
-      Alert.alert("エラー", e?.message ?? "upload failed");
+      return { ok: false, message: e?.message ?? "upload failed" };
     } finally {
       setLoading(false);
     }
