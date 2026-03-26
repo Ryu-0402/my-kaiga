@@ -7,6 +7,7 @@ import React, {
   useState,
 } from "react";
 import { supabase } from "@/src/lib/supabase";
+import { useAuth } from "@/src/providers/AuthProvider";
 
 export type Account = {
   id: string;
@@ -26,19 +27,19 @@ type AccountContextValue = {
 const AccountContext = createContext<AccountContextValue | null>(null);
 
 export function AccountProvider({ children }: { children: React.ReactNode }) {
+  const { user, loading: authLoading } = useAuth();
   const [account, setAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    if (!user) {
+      setAccount(null);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const { data: auth } = await supabase.auth.getUser();
-      const user = auth.user;
-      if (!user) {
-        setAccount(null);
-        return;
-      }
-
       const { data, error } = await supabase
         .from("accounts")
         .select("id, username, avatar_url, bio")
@@ -53,47 +54,40 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   const patch = useCallback((p: Partial<Account>) => {
     setAccount((prev) => (prev ? { ...prev, ...p } : prev));
   }, []);
 
-  // 起動時に1回取得（再起動してもここで復元）
   useEffect(() => {
+    if (authLoading) return;
     refresh();
-  }, [refresh]);
+  }, [authLoading, refresh]);
 
-  // accounts更新を購読して即反映（Setting→MyPage 即反映の強いやつ）
   useEffect(() => {
-    let channel: ReturnType<typeof supabase.channel> | null = null;
+    if (!user) return;
 
-    (async () => {
-      const { data: auth } = await supabase.auth.getUser();
-      const user = auth.user;
-      if (!user) return;
-
-      channel = supabase
-        .channel(`accounts:${user.id}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "UPDATE",
-            schema: "public",
-            table: "accounts",
-            filter: `id=eq.${user.id}`,
-          },
-          (payload) => {
-            setAccount(payload.new as Account);
-          }
-        )
-        .subscribe();
-    })();
+    const channel = supabase
+      .channel(`accounts:${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "accounts",
+          filter: `id=eq.${user.id}`,
+        },
+        (payload) => {
+          setAccount(payload.new as Account);
+        }
+      )
+      .subscribe();
 
     return () => {
-      if (channel) supabase.removeChannel(channel);
+      supabase.removeChannel(channel);
     };
-  }, []);
+  }, [user]);
 
   const value = useMemo(
     () => ({ account, loading, refresh, patch, setAccount }),

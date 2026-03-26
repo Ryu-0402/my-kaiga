@@ -1,69 +1,175 @@
 import { useState } from "react";
-import { View, Text, TextInput, Pressable, Alert } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  Alert,
+  Image,
+  ActivityIndicator,
+} from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { supabase } from "../..//lib/supabase";
 import { router } from "expo-router";
 
 export default function CreateAccount() {
   const [username, setUsername] = useState("");
+  const [imageUri, setImageUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const pickImage = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!perm.granted) {
+      Alert.alert("権限エラー", "写真へのアクセスが必要です");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setImageUri(result.assets[0].uri);
+    }
+  };
+
+  const uriToUint8Array = async (uri: string) => {
+    const b64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: "base64",
+    });
+
+    const binary = globalThis.atob(b64);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    return bytes;
+  };
+
   const onSubmit = async () => {
-    if (!username.trim()) {
+    const trimmed = username.trim();
+
+    if (!trimmed) {
       Alert.alert("エラー", "ユーザー名を入力してください");
+      return;
+    }
+
+    if (trimmed.length > 10) {
+      Alert.alert("エラー", "10文字以内にしてください");
       return;
     }
 
     setLoading(true);
 
-    // 現在のログインユーザー取得
-    const { data: sessionData } = await supabase.auth.getSession();
-    const user = sessionData.session?.user;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user;
 
-    if (!user) {
-      Alert.alert("エラー", "ログインしてください");
+      if (!user) {
+        Alert.alert("エラー", "ログインしてください");
+        return;
+      }
+
+      let avatarUrl: string | null = null;
+
+      if (imageUri) {
+        const bytes = await uriToUint8Array(imageUri);
+        const path = `${user.id}/avatar.jpg`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("avatars")
+          .upload(path, bytes, {
+            contentType: "image/jpeg",
+            upsert: true,
+          });
+
+        if (uploadError) {
+          Alert.alert("画像アップロード失敗", uploadError.message);
+          return;
+        }
+
+        const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+        avatarUrl = data.publicUrl;
+      }
+
+      const { error } = await supabase.from("accounts").insert({
+        id: user.id,
+        username: trimmed,
+        avatar_url: avatarUrl,
+      });
+
+      if (error) {
+        Alert.alert("登録失敗", error.message);
+        return;
+      }
+
+      router.replace("/(main)");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    // accountsテーブルにinsert
-    const { error } = await supabase.from("accounts").insert({
-      id: user.id,
-      username: username,
-    });
-
-    setLoading(false);
-
-    if (error) {
-      Alert.alert("登録失敗", error.message);
-      return;
-    }
-
-    // 登録成功 → メインへ
-    router.replace("/(main)");
   };
 
   return (
-    <View className="flex-1 justify-center px-6 bg-white">
-      <Text className="text-2xl font-bold mb-6 text-center">
-        ユーザー名を決めてください
-      </Text>
+    <View className="flex-1 bg-black items-center justify-center px-6">
+      
+      {/* 中央コンテナ */}
+      <View className="w-full max-w-md items-center">
 
-      <TextInput
-        value={username}
-        onChangeText={setUsername}
-        placeholder="username"
-        className="border border-gray-300 p-4 rounded-lg mb-6"
-      />
-
-      <Pressable
-        onPress={onSubmit}
-        disabled={loading}
-        className="bg-black py-4 rounded-lg"
-      >
-        <Text className="text-white text-center text-lg">
-          {loading ? "登録中..." : "登録する"}
+        {/* タイトル */}
+        <Text className="text-white text-3xl font-bold mb-10">
+          プロフィール作成
         </Text>
-      </Pressable>
+
+        {/* アバター */}
+        <Pressable onPress={pickImage} className="mb-10">
+          {imageUri ? (
+            <Image
+              source={{ uri: imageUri }}
+              className="w-28 h-28 rounded-full"
+            />
+          ) : (
+            <View className="w-28 h-28 rounded-full bg-zinc-800 items-center justify-center">
+              <Text className="text-4xl text-zinc-500">+</Text>
+            </View>
+          )}
+        </Pressable>
+
+        {/* 入力 */}
+        <TextInput
+          value={username}
+          onChangeText={setUsername}
+          placeholder="ユーザー名 (10文字以内)"
+          placeholderTextColor="#6b7280"
+          maxLength={10}
+          className="w-full bg-zinc-900 text-white px-4 py-4 rounded-xl mb-6 border border-zinc-800"
+        />
+
+        {/* ボタン */}
+        <Pressable
+          onPress={onSubmit}
+          disabled={loading}
+          className={`w-full py-4 rounded-xl ${
+            loading ? "bg-zinc-700" : "bg-white"
+          }`}
+        >
+          <View className="flex-row items-center justify-center">
+            {loading && (
+              <ActivityIndicator color="black" className="mr-2" />
+            )}
+            <Text className="text-center text-lg font-bold text-black">
+              {loading ? "登録中..." : "登録する"}
+            </Text>
+          </View>
+        </Pressable>
+
+      </View>
     </View>
   );
 }

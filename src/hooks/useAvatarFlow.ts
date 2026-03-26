@@ -13,7 +13,6 @@ export function useAvatarFlow() {
     // 1) user
     const { data: { user }, error: uErr } = await supabase.auth.getUser();
     if (uErr || !user) {
-      Alert.alert("未ログイン", "ログインしてください");
       return;
     }
 
@@ -25,7 +24,6 @@ export function useAvatarFlow() {
       .maybeSingle();
 
     if (aErr) {
-      Alert.alert("失敗", aErr.message);
       return;
     }
 
@@ -34,7 +32,6 @@ export function useAvatarFlow() {
     // 3) 新しい画像をアップロード（毎回新しいpath=URLになる）
     const r = await selectAndUploadImage();
     if (!r.ok) {
-      Alert.alert("中断", r.message);
       return;
     }
 
@@ -44,10 +41,6 @@ export function useAvatarFlow() {
       .update({ avatar_url: r.url })
       .eq("id", user.id);
 
-    if (dbErr) {
-      Alert.alert("更新失敗", dbErr.message);
-      return;
-    }
 
     // 5) 旧ファイル削除（失敗しても新しいのは残す）
     if (oldUrl) {
@@ -63,7 +56,6 @@ export function useAvatarFlow() {
 
     // 6) 即時反映
     setAvatarUri(r.url);
-    Alert.alert("成功", "アバター更新した");
     patch({ avatar_url: r.url});
   };
 

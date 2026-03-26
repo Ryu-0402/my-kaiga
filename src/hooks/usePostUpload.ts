@@ -1,6 +1,8 @@
 import { useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "@/src/lib/supabase";
+import { uriToUint8Array } from "@/src/utils/uriToUnit8Array";
+import { Genre } from "@/src/constants/genre";
 
 type CreatePostResult =
   | { ok: true }
@@ -9,7 +11,12 @@ type CreatePostResult =
 export function usePostUpload() {
   const [loading, setLoading] = useState(false);
 
-  const createPost = async (caption: string): Promise<CreatePostResult> => {
+  const createPost = async (
+    genre: Genre,
+    caption: string
+  ): Promise<CreatePostResult> => {
+    const trimmedCaption = caption.trim();
+
     setLoading(true);
 
     try {
@@ -40,12 +47,11 @@ export function usePostUpload() {
         return { ok: false, message: "ログインが必要です" };
       }
 
-      const res = await fetch(uri);
-      if (!res.ok) {
-        return { ok: false, message: "画像の読み込みに失敗しました" };
-      }
+      const bytes = await uriToUint8Array(uri);
 
-      const blob = await res.blob();
+      if (bytes.byteLength === 0) {
+        return { ok: false, message: "画像データが空です" };
+      }
 
       const ext =
         asset.mimeType === "image/png"
@@ -58,7 +64,7 @@ export function usePostUpload() {
 
       const { error: uploadError } = await supabase.storage
         .from("posts")
-        .upload(path, blob, {
+        .upload(path, bytes, {
           contentType: asset.mimeType ?? "image/jpeg",
           upsert: false,
         });
@@ -77,7 +83,8 @@ export function usePostUpload() {
         user_id: user.id,
         image_url: imageUrl,
         image_path: path,
-        caption: caption.trim() || null,
+        genre: genre,
+        caption: trimmedCaption || null,
       });
 
       if (insertError) {

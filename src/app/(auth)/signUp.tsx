@@ -1,9 +1,17 @@
-// src/app/(auth)/signup.tsx
-import { View, Text, TextInput, Button, Pressable } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableWithoutFeedback,
+  Keyboard,
+} from "react-native";
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { router } from "expo-router";
-
 
 export default function SignUp() {
   const [email, setEmail] = useState("");
@@ -11,10 +19,17 @@ export default function SignUp() {
   const [loading, setLoading] = useState(false);
 
   const handleSignUp = async () => {
+    Keyboard.dismiss();
+
+    if (!email.trim() || !password.trim()) {
+      alert("メールアドレスとパスワードを入力してください");
+      return;
+    }
+
     setLoading(true);
 
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: email.trim(),
       password,
     });
 
@@ -24,40 +39,85 @@ export default function SignUp() {
       return;
     }
 
-    // メール確認がONだと、ここではまだログイン完了にならない（確認メール待ち）
-    // OFFなら即 session が入って、AuthGate が (main) に飛ばしてくれる。
     if (!data.session) {
-      alert("確認メールを送った。メールを開いて認証して。");
+      alert("確認メールを送信しました。メールを開いて認証してください。");
+    } else {
+      router.replace("/");
     }
 
     setLoading(false);
   };
 
   return (
-    <View style={{ padding: 20 }}>
-      <Pressable onPress={() => router.push("/(auth)/login")}>
-        <Text className="text-blue-500">Back</Text>
-      </Pressable>
-      <Text>Sign Up</Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <KeyboardAvoidingView
+        className="flex-1 bg-black"
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View className="flex-1 justify-center px-6">
+          <View className="mb-10">
+            <Pressable onPress={() => router.push("/(auth)/login")}>
+              <Text className="text-white text-base mb-6">← back</Text>
+            </Pressable>
 
-      <TextInput
-        placeholder="Email"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-      />
+            <View className="items-center">
+              <Text className="text-white text-4xl font-bold mb-3">
+                Sign Up
+              </Text>
+            </View>
+          </View>
 
-      <TextInput
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
+          <View className="bg-zinc-900 rounded-3xl px-5 py-6">
+            <Text className="text-white text-sm mb-2">Email</Text>
+            <TextInput
+              placeholder="Email"
+              placeholderTextColor="#888"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              editable={!loading}
+              className="bg-black text-white rounded-2xl px-4 py-4 mb-4"
+            />
 
-      <Button
-        title={loading ? "Loading..." : "Create account"}
-        onPress={handleSignUp}
-      />
-    </View>
+            <Text className="text-white text-sm mb-2">Password</Text>
+            <TextInput
+              placeholder="Password"
+              placeholderTextColor="#888"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              editable={!loading}
+              className="bg-black text-white rounded-2xl px-4 py-4 mb-6"
+            />
+
+            <Pressable
+              onPress={handleSignUp}
+              disabled={loading}
+              className={`rounded-2xl py-4 items-center ${
+                loading ? "bg-gray-600" : "bg-white"
+              }`}
+            >
+              {loading ? (
+                <ActivityIndicator color="black" />
+              ) : (
+                <Text className="text-black font-bold text-base">
+                  Create account
+                </Text>
+              )}
+            </Pressable>
+          </View>
+
+          <View className="mt-8 items-center">
+            <Text className="text-gray-400 mb-2">
+              すでにアカウントを持っている？
+            </Text>
+            <Pressable onPress={() => router.push("/(auth)/login")}>
+              <Text className="text-white font-bold text-base">ログインへ</Text>
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </TouchableWithoutFeedback>
   );
 }

@@ -1,24 +1,7 @@
 import { useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "@/src/lib/supabase";
-import * as FileSystem from "expo-file-system/legacy";
-
-
-async function uriToUint8Array(uri: string) {
-  const b64 = await FileSystem.readAsStringAsync(uri, {
-    encoding: "base64",
-  });
-
-  const binary = globalThis.atob(b64);
-
-  const bytes = new Uint8Array(binary.length);
-
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-
-  return bytes;
-}
+import { uriToUint8Array } from "@/src/utils/uriToUnit8Array";
 
 type UploadResult =
   | { ok: true; url: string; path: string; uri: string; contentType: string }
