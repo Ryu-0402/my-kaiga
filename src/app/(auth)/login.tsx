@@ -75,8 +75,18 @@ export default function Login() {
               onChangeText={setPassword}
               secureTextEntry
               editable={!loading}
-              className="bg-black text-white rounded-2xl px-4 py-4 mb-6"
+              className="bg-black text-white rounded-2xl px-4 py-4 mb-3"
             />
+
+            <View className="items-end mb-6">
+              <Link href="/(auth)/forgot-password" asChild>
+                <Pressable disabled={loading}>
+                  <Text className="text-gray-300 text-sm">
+                    パスワードを忘れた場合
+                  </Text>
+                </Pressable>
+              </Link>
+            </View>
 
             <Pressable
               onPress={handleLogin}
