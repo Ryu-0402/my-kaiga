@@ -7,9 +7,11 @@ import {
   Pressable,
   ScrollView,
   Modal,
+  Alert,
 } from "react-native";
 import { useMemo, useState } from "react";
 import { usePosts } from "@/src/hooks/usePosts";
+import { useReportPost } from "@/src/hooks/useReportPost";
 import Footer from "@/src/components/Footer";
 import { Genre } from "@/src/constants/genre";
 
@@ -27,6 +29,8 @@ const genres: ("すべて" | Genre)[] = [
 
 export default function GalleryScreen() {
   const { posts, loading, refresh } = usePosts();
+  const { reportPost, loading: reportLoading } = useReportPost();
+
   const [selectedGenre, setSelectedGenre] =
     useState<"すべて" | Genre>("すべて");
 
@@ -50,6 +54,42 @@ export default function GalleryScreen() {
     setSelectedPost(null);
   };
 
+  const onPressReport = (postId: string) => {
+    Alert.alert("通報", "この投稿を通報しますか？", [
+      { text: "キャンセル", style: "cancel" },
+      {
+        text: "通報する",
+        style: "destructive",
+        onPress: async () => {
+          const result = await reportPost(postId);
+
+          if (!result.ok) {
+            Alert.alert("失敗", result.message);
+            return;
+          }
+
+          Alert.alert("完了", result.message);
+        },
+      },
+    ]);
+  };
+
+  const onPressMenu = () => {
+    if (!selectedPost || reportLoading) return;
+
+    Alert.alert("メニュー", "", [
+      {
+        text: "通報",
+        style: "destructive",
+        onPress: () => onPressReport(selectedPost.id),
+      },
+      {
+        text: "キャンセル",
+        style: "cancel",
+      },
+    ]);
+  };
+
   return (
     <View className="flex-1 bg-black">
       {/* ジャンル横スクロール */}
@@ -70,9 +110,7 @@ export default function GalleryScreen() {
                   active ? "bg-white" : "bg-neutral-800"
                 }`}
               >
-                <Text
-                  className={active ? "text-black font-bold" : "text-white"}
-                >
+                <Text className={active ? "text-black font-bold" : "text-white"}>
                   {genre}
                 </Text>
               </Pressable>
@@ -125,6 +163,19 @@ export default function GalleryScreen() {
         onRequestClose={closeViewer}
       >
         <View className="flex-1 bg-black/95">
+          {/* 右上三点メニュー */}
+          <View className="absolute top-14 right-4 z-50">
+            <Pressable
+              onPress={onPressMenu}
+              disabled={reportLoading}
+              className="px-3 py-2"
+            >
+              <Text className="text-white text-2xl font-bold">
+                {reportLoading ? "…" : "⋯"}
+              </Text>
+            </Pressable>
+          </View>
+
           {/* 閉じる */}
           <Pressable onPress={closeViewer} className="pt-14 px-4 pb-4">
             <Text className="text-white text-lg">閉じる</Text>
@@ -141,7 +192,7 @@ export default function GalleryScreen() {
             )}
           </View>
 
-          {/* 下情報（タイトルなし） */}
+          {/* 下情報 */}
           {selectedPost && (
             <View className="px-4 pb-8 pt-4 border-t border-neutral-800">
               <Text className="text-white text-sm">
@@ -149,8 +200,6 @@ export default function GalleryScreen() {
                   ? selectedPost.caption
                   : "キャプションはありません"}
               </Text>
-
-              {/* 将来ここにgood / コメント */}
             </View>
           )}
         </View>
